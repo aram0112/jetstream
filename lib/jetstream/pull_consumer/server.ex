@@ -70,7 +70,7 @@ defmodule Jetstream.PullConsumer.Server do
          {:ok, sid} <- Gnat.sub(conn, self(), listening_topic),
          gen_state = %{gen_state | subscription_id: sid},
          :ok <- next_message(conn, stream_name, consumer_name, listening_topic),
-         gen_state = %{gen_state | current_retry: 0} do
+         gen_state = %{gen_state | current_retry: 0, connection_pid: conn} do
       {:ok, gen_state}
     else
       {:error, reason} ->
@@ -237,30 +237,35 @@ defmodule Jetstream.PullConsumer.Server do
   end
 
   def handle_info(
-        {:EXIT, _pid, _reason},
+        {:EXIT, pid, _reason},
         %__MODULE__{
           connection_options: %ConnectionOptions{
             connection_name: connection_name,
             stream_name: stream_name,
             consumer_name: consumer_name
           },
+          connection_pid: cpid,
           subscription_id: subscription_id,
           listening_topic: listening_topic,
           module: module
         } = gen_state
       ) do
-    Logger.debug(
-      """
-      #{__MODULE__} for #{stream_name}.#{consumer_name}:
-      NATS connection has died. PullConsumer is reconnecting.
-      """,
-      module: module,
-      listening_topic: listening_topic,
-      subscription_id: subscription_id,
-      connection_name: connection_name
-    )
+    if pid == cpid do
+      Logger.debug(
+        """
+        #{__MODULE__} for #{stream_name}.#{consumer_name}:
+        NATS connection has died. PullConsumer is reconnecting.
+        """,
+        module: module,
+        listening_topic: listening_topic,
+        subscription_id: subscription_id,
+        connection_name: connection_name
+      )
 
-    {:connect, :reconnect, gen_state}
+      {:connect, :reconnect, gen_state}
+    else
+      {:noreply, gen_state}
+    end
   end
 
   def handle_info(
@@ -321,5 +326,24 @@ defmodule Jetstream.PullConsumer.Server do
       consumer_name,
       listening_topic
     )
+  end
+
+  def terminate(
+        reason,
+        %__MODULE__{
+          connection_options: %ConnectionOptions{
+            connection_name: connection_name,
+            stream_name: stream_name,
+            consumer_name: consumer_name
+          },
+          subscription_id: subscription_id,
+          listening_topic: listening_topic,
+          module: module
+        } = gen_state
+      ) do
+    with {:ok, conn} <- connection_pid(connection_name),
+         Process.unlink(conn),
+         :ok <- Gnat.unsub(conn, subscription_id) do
+    end
   end
 end
