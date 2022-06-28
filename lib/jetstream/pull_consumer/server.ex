@@ -10,6 +10,7 @@ defmodule Jetstream.PullConsumer.Server do
 
   defstruct [
     :connection_options,
+    :connection_pid,
     :state,
     :listening_topic,
     :module,
