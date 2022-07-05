@@ -251,21 +251,23 @@ defmodule Jetstream.PullConsumer.Server do
           module: module
         } = gen_state
       ) do
-    if pid == cpid do
-      Logger.debug(
-        """
-        #{__MODULE__} for #{stream_name}.#{consumer_name}:
-        NATS connection has died. PullConsumer is reconnecting.
-        """,
-        module: module,
-        listening_topic: listening_topic,
-        subscription_id: subscription_id,
-        connection_name: connection_name
-      )
+    case connection_pid(connection_name) do
+      {:error, _} ->
+        Logger.debug(
+          """
+          #{__MODULE__} for #{stream_name}.#{consumer_name}:
+          NATS connection has died. PullConsumer is reconnecting.
+          """,
+          module: module,
+          listening_topic: listening_topic,
+          subscription_id: subscription_id,
+          connection_name: connection_name
+        )
 
-      {:connect, :reconnect, gen_state}
-    else
-      {:noreply, gen_state}
+        {:connect, :reconnect, gen_state}
+
+      {:ok, pid} ->
+        {:noreply, gen_state}
     end
   end
 
